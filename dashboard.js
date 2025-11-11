@@ -34,11 +34,18 @@ async function loadUserProfile(userId) {
         if (error) throw error;
 
         if (profile) {
-            const displayName = profile.first_name || profile.full_name || profile.username || profile.email;
+            let displayName;
+            if (profile.account_type === 'parent' || profile.account_type === 'teacher') {
+                displayName = profile.email;
+            } else {
+                displayName = profile.first_name || profile.full_name || profile.username || profile.email;
+            }
             userName.textContent = displayName;
 
             if (profile.avatar_url) {
                 userAvatar.innerHTML = `<img src="${profile.avatar_url}" alt="Avatar">`;
+            } else if (profile.email && (profile.account_type === 'parent' || profile.account_type === 'teacher')) {
+                userAvatar.textContent = profile.email.charAt(0).toUpperCase();
             } else if (profile.first_name) {
                 userAvatar.textContent = profile.first_name.charAt(0).toUpperCase();
             } else if (profile.username) {
