@@ -33,6 +33,9 @@ const authForm = document.getElementById('authForm');
 const googleSignInBtn = document.getElementById('googleSignInBtn');
 const errorMessage = document.getElementById('errorMessage');
 const successMessage = document.getElementById('successMessage');
+const modeToggleTop = document.getElementById('modeToggleTop');
+const modeToggleTopText = document.getElementById('modeToggleTopText');
+const modeToggleIcon = document.getElementById('modeToggleIcon');
 
 function updateUI() {
     if (isSignUpMode) {
@@ -42,6 +45,8 @@ function updateUI() {
         googleBtnText.textContent = 'Sign up with Google';
         toggleText.textContent = 'Already have an account?';
         toggleModeLink.textContent = 'Log In';
+        modeToggleTopText.textContent = 'Log In';
+        modeToggleIcon.className = 'fas fa-sign-in-alt';
         forgotPasswordContainer.style.display = 'none';
     } else {
         authTitle.textContent = 'Welcome Back!';
@@ -50,18 +55,23 @@ function updateUI() {
         googleBtnText.textContent = 'Continue with Google';
         toggleText.textContent = "Don't have an account?";
         toggleModeLink.textContent = 'Sign Up';
+        modeToggleTopText.textContent = 'Sign Up';
+        modeToggleIcon.className = 'fas fa-user-plus';
         forgotPasswordContainer.style.display = 'block';
     }
 }
 
 updateUI();
 
-toggleModeLink.addEventListener('click', (e) => {
+function toggleMode(e) {
     e.preventDefault();
     isSignUpMode = !isSignUpMode;
     updateUI();
     hideMessages();
-});
+}
+
+toggleModeLink.addEventListener('click', toggleMode);
+modeToggleTop.addEventListener('click', toggleMode);
 
 function showError(message) {
     errorMessage.textContent = message;
@@ -97,6 +107,17 @@ function setLoading(isLoading) {
 
 async function createUserProfile(userId, email, accountType) {
     try {
+        const { data: existingProfile } = await supabase
+            .from('user_profiles')
+            .select('*')
+            .eq('id', userId)
+            .maybeSingle();
+
+        if (existingProfile) {
+            console.log('User profile already exists');
+            return;
+        }
+
         const { error } = await supabase
             .from('user_profiles')
             .insert({
@@ -106,6 +127,10 @@ async function createUserProfile(userId, email, accountType) {
             });
 
         if (error) {
+            if (error.code === '23505') {
+                console.log('User profile already exists (duplicate key)');
+                return;
+            }
             console.error('Error creating user profile:', error);
             throw error;
         }
@@ -146,6 +171,7 @@ authForm.addEventListener('submit', async (e) => {
             if (data.user) {
                 await createUserProfile(data.user.id, email, accountType);
                 showSuccess('Account created successfully! Redirecting...');
+                localStorage.removeItem('accountType');
 
                 setTimeout(() => {
                     window.location.href = 'index.html';
@@ -162,8 +188,20 @@ authForm.addEventListener('submit', async (e) => {
             if (data.user) {
                 showSuccess('Login successful! Redirecting...');
 
+                const { data: profile } = await supabase
+                    .from('user_profiles')
+                    .select('account_type')
+                    .eq('id', data.user.id)
+                    .maybeSingle();
+
                 setTimeout(() => {
-                    window.location.href = 'index.html';
+                    if (profile && profile.account_type === 'parent') {
+                        window.location.href = 'parent-dashboard.html';
+                    } else if (profile && profile.account_type === 'teacher') {
+                        window.location.href = 'teacher-dashboard.html';
+                    } else {
+                        window.location.href = 'index.html';
+                    }
                 }, 1500);
             }
         }
@@ -174,8 +212,15 @@ authForm.addEventListener('submit', async (e) => {
             showError('Invalid email or password. Please try again.');
         } else if (error.message.includes('User already registered')) {
             showError('This email is already registered. Please log in instead.');
+            setTimeout(() => {
+                isSignUpMode = false;
+                updateUI();
+                hideMessages();
+            }, 2000);
         } else if (error.message.includes('Email not confirmed')) {
             showError('Please check your email to confirm your account.');
+        } else if (error.message.includes('duplicate key')) {
+            showError('This account already exists. Please log in instead.');
         } else {
             showError(error.message || 'An error occurred. Please try again.');
         }
@@ -191,7 +236,10 @@ googleSignInBtn.addEventListener('click', async () => {
         const { data, error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
             options: {
-                redirectTo: window.location.origin + '/index.html'
+                redirectTo: window.location.origin + '/index.html',
+                queryParams: {
+                    prompt: 'select_account'
+                }
             }
         });
 
@@ -263,7 +311,7 @@ document.getElementById('resetPasswordForm').addEventListener('submit', async (e
     }
 });
 
-supabase.auth.onAuthStateChange((async (event, session) => {
+supabase.auth.onAuthStateChange((event, session) => {
     (async () => {
         if (event === 'SIGNED_IN' && session) {
             const { data: profile } = await supabase
@@ -272,9 +320,14 @@ supabase.auth.onAuthStateChange((async (event, session) => {
                 .eq('id', session.user.id)
                 .maybeSingle();
 
-            if (!profile && accountType) {
-                await createUserProfile(session.user.id, session.user.email, accountType);
+            if (!profile) {
+                const storedAccountType = accountType || localStorage.getItem('accountType') || 'student';
+                try {
+                    await createUserProfile(session.user.id, session.user.email, storedAccountType);
+                } catch (error) {
+                    console.error('Error creating profile during auth state change:', error);
+                }
             }
         }
     })();
-}));
+});

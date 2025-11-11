@@ -341,7 +341,11 @@
 
         function selectAccountType(type) {
             localStorage.setItem('accountType', type);
-            window.location.href = `auth.html?type=${type}&mode=signup`;
+            if (type === 'student') {
+                window.location.href = 'student-signup.html';
+            } else {
+                window.location.href = `auth.html?type=${type}&mode=signup`;
+            }
         }
 
         const revealElements = document.querySelectorAll('.reveal');
