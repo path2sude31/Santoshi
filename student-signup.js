@@ -181,6 +181,22 @@ panel2Form.addEventListener('submit', async (e) => {
             return;
         }
 
+        let parentId = null;
+        const { data: parentProfile, error: parentLookupError } = await supabase
+            .from('user_profiles')
+            .select('id, account_type')
+            .eq('email', formData.parentEmail)
+            .eq('account_type', 'parent')
+            .maybeSingle();
+
+        if (parentLookupError && parentLookupError.code !== 'PGRST116') {
+            console.error('Error looking up parent:', parentLookupError);
+        }
+
+        if (parentProfile) {
+            parentId = parentProfile.id;
+        }
+
         const { data: authData, error: authError } = await supabase.auth.signUp({
             email: email,
             password: password,
@@ -195,16 +211,22 @@ panel2Form.addEventListener('submit', async (e) => {
         if (authError) throw authError;
 
         if (authData.user) {
+            const profileData = {
+                id: authData.user.id,
+                email: email,
+                account_type: 'student',
+                first_name: firstName,
+                age: formData.age,
+                parent_email: formData.parentEmail
+            };
+
+            if (parentId) {
+                profileData.parent_id = parentId;
+            }
+
             const { error: profileError } = await supabase
                 .from('user_profiles')
-                .insert({
-                    id: authData.user.id,
-                    email: email,
-                    account_type: 'student',
-                    first_name: firstName,
-                    age: formData.age,
-                    parent_email: formData.parentEmail
-                });
+                .insert(profileData);
 
             if (profileError) {
                 console.error('Error creating profile:', profileError);
@@ -227,6 +249,8 @@ panel2Form.addEventListener('submit', async (e) => {
             showError('This email is already registered. Please use a different email or log in.');
         } else if (error.message.includes('duplicate key')) {
             showError('This email is already registered. Please use a different email or log in.');
+        } else if (error.message.includes('violates check constraint')) {
+            showError('Unable to create student account. Please ensure your parent has registered first.');
         } else {
             showError(error.message || 'An error occurred. Please try again.');
         }
